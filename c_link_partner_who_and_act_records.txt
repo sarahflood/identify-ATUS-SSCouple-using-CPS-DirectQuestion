@@ -1,0 +1,89 @@
+#delimit;
+clear;
+set more off;
+
+
+log using logs/c_link_partner_who_and_act_records.log, t replace;
+
+
+/*1. merge new partners with who records*/
+use data/recode_person_pre_drop;
+
+keep caseid lineno ispart ishousemate;
+keep if ispart==1 | ishousemate==1;
+
+tab lineno;
+
+rename lineno linenow;
+
+sort caseid linenow ispart;
+
+sum _all;
+
+merge 1:m caseid linenow using data/extract_w;
+
+tab year _merge;
+drop if _merge==1; //these are pre-2007 cases
+
+replace ispart=0 if ispart==.;
+sum ispart;
+replace ishousemate=0 if ishousemate==.;
+sum ishousemate;
+
+egen haspart=max(ispart),by(caseid actlinew);
+egen hashousemate=max(ishousemate),by(caseid actlinew);
+
+rename actlinew actline;
+
+keep if wholine==1;
+
+sum _all;
+
+keep caseid actline haspart hashousemate;
+sort caseid actline haspart hashousemate;
+
+save data/part_on_who.dta, replace;
+
+
+/*2. Merge whos with activities*/
+clear;
+use data/part_on_who.dta;
+merge 1:1 caseid actline using data/extract_a;
+
+gen _wpart=duration if haspart==1;
+egen tuv_wpart=sum(_wpart),by(caseid);
+
+sum tuv_wpart;
+
+gen _whouse=duration if hashousemate==1;
+egen tuv_whouse=sum(_whouse),by(caseid);
+
+sum tuv_whouse;
+
+keep if actline==1;
+keep caseid tuv_wpart tuv_whouse;
+sort caseid;
+
+save data/tuv_wpart, replace;
+
+
+/*3. merge time use variables with person records again*/
+
+merge 1:1 caseid using data/recode_person_pre_drop_resp_only;
+keep if _merge!=1;
+drop _merge;
+count; 
+
+save data/recode_person_mergetuv.dta, replace;
+keep if lineno==1;
+count;
+keep if sp_age!=.;
+count;
+keep if lineno==1 & sp_age>=15 & sp_age!=.;
+count;
+sum sp_* if lineno==1;
+
+save data/recode_person.dta, replace;
+count;
+
+log close;

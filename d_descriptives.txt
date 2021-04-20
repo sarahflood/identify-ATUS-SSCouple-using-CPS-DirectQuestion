@@ -1,0 +1,466 @@
+#delimit;
+clear;
+clear matrix;
+set more off;
+
+
+local logdate = string( d(`c(current_date)'), "%dN.D.Y" );
+
+log using logs/d_descriptives_`logdate'.log, t replace;
+
+include includes/data_locations.doi;
+use data/recode_person.dta;
+
+qui count if same_sex==1;
+disp "Number SS couples=`r(N)'";
+
+qui count if strictestkeep==1 & same_sex==1;
+disp "Number of SS couples whose sex doesn't change=`r(N)'";
+
+qui count if same_sex==1 & marr_cohab==2;
+disp "Number SS couples who are cohabiting=`r(N)'";
+
+qui count if strictestkeep==1 & same_sex==1 & marr_cohab==2;
+disp "Number of SS couples whose sex doesn't change AND who are cohabiting=`r(N)'";
+
+tab couple_type if same_sex==1 & marr_cohab==2;
+tab couple_type if strictestkeep==1 & same_sex==1 & marr_cohab==2;
+
+tab couple_type if same_sex==1 & marr_cohab==1;
+tab couple_type if strictestkeep==1 & same_sex==1 & marr_cohab==1;
+
+
+tab couple_type same_sex, col;
+tab couple_type same_sex if strictestkeep==1, col;
+
+tab couple_type marr_cohab if same_sex==1, col;
+tab couple_type marr_cohab if same_sex==1 & strictestkeep==1, col;
+
+bysort marr_cohab: tab same_sex resp_sex_same, row;
+bysort marr_cohab: tab same_sex part_sex_same if couple_type!=0, row;
+bysort marr_cohab: tab same_sex both_sex_same, row;
+tab same_sex strictestkeep;
+tab same_sex marr_cohab;
+tab marr_cohab strictestkeep if same_sex==1;
+tab year marr_cohab if strictestkeep==0 & same_sex==1;
+tab same_sex marr_cohab if strictestkeep==1;
+tab same_sex pointer_method if strictestkeep==0;
+
+gen weekend=(day==1 | day==7);
+
+save data/analysis.dta, replace;
+count;
+local targetN=r(N);
+
+foreach package in outreg2 {;
+	capture which `package';
+	if _rc==111 ssc install `package';
+	};
+
+local new_Table1 1;
+local new_Table2 1;
+local new_Table3 1;
+local new_Table4 1;
+local investigate_pointer_method 0;
+local analyze_housemates 0;
+
+
+if `new_Table1'==1 {;
+	svyset [pweight = wt06];
+	
+	local ss_value 1;
+	local ds_value 0;
+	
+	/*we're restricting to 2007 forward because this is when the direct question method was introduced*/
+
+	local if10 marr_cohab==1 & year<=2006;
+	local if11 marr_cohab==1 & year>=2007;
+	
+	local if20 marr_cohab==2 & year<=2006;
+	local if21 marr_cohab==2 & year>=2007;
+	local if22 marr_cohab==2 & sex==1 & year<=2006;
+	local if23 marr_cohab==2 & sex==2 & year<=2006;
+	local if24 marr_cohab==2 & sex==1 & year>=2007;
+	local if25 marr_cohab==2 & sex==2 & year>=2007;
+
+	foreach y in 10 11 20 21 22 23 24 25 {;
+	foreach x in ss ds {;
+	
+		disp "marr_cohab=`y' ss/ds couple=`x'";
+		/*N of SS cohab couples*/
+		count if same_sex==``x'_value' & `if`y'';
+		local `x'_cohab_N=`r(N)';
+
+		/*N of SS cohab couples for householder method*/
+		count if same_sex==``x'_value' & pointer_method==0 & `if`y'';
+		local `x'_cohab_N_hh=`r(N)';
+
+		/*unweighted %*/
+		local `x'_cohab_hh_unwp=round(``x'_cohab_N_hh'/``x'_cohab_N',.001)*100;
+
+		/*N of SS cohab couples for pointer method*/
+		count if same_sex==``x'_value' & pointer_method==1 & `if`y'';
+		local `x'_cohab_N_pm=`r(N)';
+
+		/*unweighted %*/
+		local `x'_cohab_pm_unwp=round(``x'_cohab_N_pm'/``x'_cohab_N',.001)*100;
+
+		/*weighted % SS coouples for pointer method*/
+		svy: mean pointer_method if same_sex==``x'_value' & `if`y'';
+		matrix a=r(table);
+		matrix list a;
+		local `x'_cohab_pm_wp=round(a[1,1],.001)*100;
+
+		/*weighted % SS couples for householder method*/
+		local `x'_cohab_hh_wp=round(100-``x'_cohab_pm_wp',.1);
+
+		disp "RESULTS for ss/ds couple=`x', type=`y'";
+		disp "`y'|`x'|``x'_cohab_N'|``x'_cohab_N_hh'|``x'_cohab_hh_unwp'|``x'_cohab_hh_wp'|``x'_cohab_N_pm'|``x'_cohab_pm_unwp'|``x'_cohab_pm_wp'";
+		};
+		};
+	
+	
+	
+	};
+
+if `new_Table2'==1 {;
+	svyset [pweight = wt06];
+
+
+	/*married & cohabiting SS couples by year*/
+	tab year marr_cohab if same_sex==1;
+
+	/*ss cohab couples IDentificaiton method by year*/
+	tab year pointer_method if same_sex==1 & marr_cohab==2;
+	
+	/*ss cohab couples IDentificaiton method by year*/
+	tab year pointer_method if same_sex==1 & marr_cohab==2, row nofreq;
+	
+	svy: tab year pointer_method if same_sex==1 & marr_cohab==2, row;
+
+	/*ss cohab couples IDentificaiton method by year -- BY SEX*/
+	bysort female: tab year pointer_method if same_sex==1 & marr_cohab==2;
+
+	/*ss cohab couples IDentificaiton method by year*/
+	tab year pointer_method if same_sex==1 & marr_cohab==1;
+	
+	/*ss cohab couples IDentificaiton method by year -- BY SEX*/
+	bysort female: tab year pointer_method if same_sex==1 & marr_cohab==1;
+	
+	};
+
+if `new_Table3'==1 {;
+	svyset [pweight = wt06];
+	
+	local demvars dincome1 dincome2 dincome3 dincome4 dincome5 dincome6
+		drace_red1 drace_red2 drace_red3
+		deduc_red1 deduc_red2 deduc_red3
+		employed
+		dage1 dage2 dage3 dage4 dage5 
+		female haschildren hasparent hasotherad
+		;
+	
+local ifsex0 "";
+local ifsex1 "& sex==1";
+local ifsex2 "& sex==2";
+
+	foreach i in 0 1 2 {;
+		disp "!!!!!working on ifsex=`i'";
+	foreach v in `demvars' {;
+		qui svy, subpop(if same_sex==1 & marr_cohab==2 `ifsex`i''): mean `v', over(pointer_method);
+		matrix a=e(b);
+		local `v'0=round(a[1,1],.001);
+		local `v'1=round(a[1,2],.001);
+		qui svy, subpop(if same_sex==1 & marr_cohab==2 `ifsex`i''): regress `v' pointer_method;
+		matrix b=r(table);
+		local `v'test=round(b[4,1],.001);
+		};
+		
+	qui svy, subpop(if same_sex==1 & marr_cohab==2 `ifsex`i''): mean sex, over(pointer_method);
+		matrix a=e(_N);
+		local N0=a[1,1];
+		local N1=a[1,2];
+	
+		disp "2003+";
+	foreach v in N `demvars' {;
+		disp "`v'|``v'0'|``v'1'|``v'test'";
+		};
+
+	foreach v in `demvars' {;
+		qui svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 `ifsex`i''): mean `v', over(pointer_method);
+		matrix a=e(b);
+		local `v'0=round(a[1,1],.001);
+		local `v'1=round(a[1,2],.001);
+		qui svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 `ifsex`i''): regress `v' pointer_method;
+		matrix b=r(table);
+		local `v'test=round(b[4,1],.001);
+		};
+
+	qui svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 `ifsex`i''): mean sex, over(pointer_method);
+		matrix a=e(_N);
+		local N0=a[1,1];
+		local N1=a[1,2];
+
+
+		disp "2007+";
+	foreach v in N `demvars' {;
+		disp "`v'|``v'0'|``v'1'|``v'test'";
+		};
+		};
+	};
+
+if `new_Table4'==1 {;
+	
+	svyset [pweight = wt06];
+	
+
+	gen dumtuv_wpart=0;
+		replace dumtuv_wpart=1 if tuv_wpart>=1;
+	
+	local tuvs tuv_wpart act_social act_sports act_work bls_carehh_kid bls_hhact bls_pcare_groom bls_pcare_sleep dumtuv_wpart;
+	
+	local ivars dincome1 dincome2 /*dincome3*/ dincome4 dincome5 dincome6
+		/*drace_red1*/ drace_red2 drace_red3
+		deduc_red1 deduc_red2 /*deduc_red3*/
+		employed
+		/*dage1*/ dage2 dage3 dage4 dage5 
+		female haschildren hasparent hasotherad weekend
+		;
+	
+	gen tuv_left=1440-act_social-act_sports-act_work-bls_carehh_kid-bls_hhact-bls_pcare_groom-bls_pcare_sleep;
+	
+
+	cap confirm file tables2/regress_ds.txt;
+	if !_rc {;
+		rm tables2/regress_ds.txt;
+		};
+	cap confirm file tables2/regress_ds_sex1.txt;
+	if !_rc {;
+		rm tables2/regress_ds_sex1.txt;
+		};
+	cap confirm file tables2/regress_ds_sex2.txt;
+	if !_rc {;
+		rm tables2/regress_ds_sex2.txt;
+		};
+	cap confirm file tables2/regress.txt;
+	if !_rc {;
+		rm tables2/regress.txt;
+		};
+	cap confirm file tables2/regress_sex1.txt;
+	if !_rc {;
+		rm tables2/regress_sex1.txt;
+		};
+	cap confirm file tables2/regress_sex2.txt;
+	if !_rc {;
+		rm tables2/regress_sex2.txt;
+		};
+
+
+	/* generate this just so we can show means for both in table*/
+	gen hh_method=(pointer_method==0);
+
+	/*Ns for table*/
+	tab sex hh_method if marr_cohab==2 & same_sex==1 & year>=2007;
+
+/*1. analysis for ss cohab couples*/
+	foreach x in `tuvs' tuv_left tuv_wpart {;
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007): regress `x' hh_method pointer_method, nocons ;
+
+		estimates store `x';
+		outreg2 using "tables2/regress.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M1) alpha(0.001, 0.01, 0.05) noaster;
+
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007): regress `x' pointer_method;
+
+		estimates store `x';
+		outreg2 using "tables2/regress.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M2) alpha(0.001, 0.01, 0.05);
+
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007): regress `x' pointer_method `ivars';
+
+		estimates store `x';
+		outreg2 using "tables2/regress.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M3) alpha(0.001, 0.01, 0.05);
+
+		};
+
+/*1.5 analysis for ss cohab couples -- by sex*/
+	foreach s in 1 2 {;
+	foreach x in `tuvs' tuv_left tuv_wpart {;
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' hh_method pointer_method, nocons ;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M1) alpha(0.001, 0.01, 0.05) noaster;
+
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' pointer_method;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M2) alpha(0.001, 0.01, 0.05);
+
+		svy, subpop(if same_sex==1 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' pointer_method `ivars';
+
+		estimates store `x';
+		outreg2 using "tables2/regress_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M3) alpha(0.001, 0.01, 0.05);
+
+		};
+		};
+
+	
+/*2. analysis for ds cohab couples*/
+	foreach x in `tuvs' tuv_left tuv_wpart {;
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007): regress `x' hh_method pointer_method, nocons;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds.txt", excel bdec(3) e(N N_sub) append cttop(M1) alpha(0.001, 0.01, 0.05);
+
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007): regress `x' pointer_method;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds.txt", excel bdec(3) e(N N_sub) append cttop(M2) alpha(0.001, 0.01, 0.05);
+
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007): regress `x' pointer_method `ivars';
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds.txt", excel bdec(3) e(N N_sub) append cttop(M3) alpha(0.001, 0.01, 0.05);
+
+		};
+
+/*2.5 analysis for ds cohab couples -- by sex*/
+	foreach s in 1 2 {;
+	foreach x in `tuvs' tuv_left tuv_wpart {;
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' hh_method pointer_method, nocons ;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M1) alpha(0.001, 0.01, 0.05) noaster;
+
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' pointer_method;
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M2) alpha(0.001, 0.01, 0.05);
+
+		svy, subpop(if same_sex==0 & marr_cohab==2 & year>=2007 & sex==`s'): regress `x' pointer_method `ivars';
+
+		estimates store `x';
+		outreg2 using "tables2/regress_ds_sex`s'.txt", excel bdec(1) dec(1) e(N N_sub) append cttop(M3) alpha(0.001, 0.01, 0.05);
+
+		};
+		};
+	};
+
+if `investigate_pointer_method'==1 {;
+	/*these are the numbers I think we want to compare to the ACS. 
+	What share of unmarried couples are same sex?
+	See also Table 3 in Kreider 2008*/
+	
+	clear;
+	use data/recode_person_pre_drop;
+	svyset [pweight = wt06];
+	
+	svy, subpop(if marr_cohab==2 & lineno==1): mean same_sex;
+	svy, subpop(if marr_cohab==2 & lineno==1): mean same_sex, over(year);
+	
+	svy, subpop(if marr_cohab==2 & strictestkeep==1 & lineno==1): mean same_sex;
+	svy, subpop(if marr_cohab==2 & strictestkeep==1 & lineno==1): mean same_sex, over(year);
+
+
+	rename same_sex _same_sex;
+	egen same_sex=max(_same_sex),by(caseid);
+	
+	keep if pointer_method==1;
+	
+	tab relate_cps8 same_sex if part_iscps_resp==1, col nof nol;
+	tab relate_cps8 same_sex if ispart==1 & same_atuscps_resp==1, col nof nol;
+	};
+
+if `analyze_housemates'==1 {;
+
+	/*these analyses are only for UNMARRIED COHABITERS!*/
+	
+	clear;
+	use data/recode_person_mergetuv;
+	keep if lineno==1;
+	svyset [pweight = wt06];
+	
+	svy: mean tuv_wpart if marr_cohab==2, over(same_sex marr_cohab pointer_method);
+	svy: mean tuv_whouse if haspart==0 & hashousemate==1, over(female);
+
+	gen temp=tuv_wpart if haspart==1;
+		replace temp=tuv_whouse if hashousemate==1 & haspart==0;
+
+		/*this is just to get the figure to work*/		
+		replace pointer_method=0 if hashousemate==1 & haspart==0;
+	
+	hist tuv_wpart if same_sex==1 & marr_cohab==2, by(pointer_method sex) percent;
+	graph box tuv_wpart if same_sex==1 & marr_cohab==2 [pweight=wt06], by(sex pointer_method) noout;
+	graph box temp  if ((same_sex==1 & marr_cohab==2) | (same_sex==0 & hashousemate==1 & haspart==0) | (same_sex==0 & haspart==1 & marr_cohab==2)) [pweight=wt06], by(sex haspart same_sex pointer_method) noout;
+	graph export logs/graph_partnerVhousemate.png, replace;
+
+
+	/*unmarried only*/
+	svy: mean temp if ((same_sex==1 & marr_cohab==2) | (same_sex==0 & hashousemate==1 & haspart==0) | (same_sex==0 & haspart==1 & marr_cohab==2)), over(sex haspart same_sex pointer_method);
+	
+	
+	/*men*/
+	/*1.housemates*/
+	_pctile temp if female==0 & haspart==0 & same_sex==0 & pointer_method==0 & hashousemate==1 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==0 & haspart==0 & same_sex==0 & pointer_method==0 & hashousemate==1;
+	
+	/*2.diff sex householder cohabiters*/
+	_pctile temp if female==0 & haspart==1 & same_sex==0 & pointer_method==0 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==0 & haspart==1 & same_sex==0 & pointer_method==0 & marr_cohab==2;
+
+	/*3.diff sex additional cohabiters*/
+	_pctile temp if female==0 & haspart==1 & same_sex==0 & pointer_method==1 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==0 & haspart==1 & same_sex==0 & pointer_method==1 & marr_cohab==2;
+
+	/*4.same sex householder cohabiters*/
+	_pctile temp if female==0 & haspart==1 & same_sex==1 & pointer_method==0 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==0 & haspart==1 & same_sex==1 & pointer_method==0 & marr_cohab==2;
+
+	/*5.same sex additional cohabiters*/
+	_pctile temp if female==0 & haspart==1 & same_sex==1 & pointer_method==1 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==0 & haspart==1 & same_sex==1 & pointer_method==1 & marr_cohab==2;
+
+
+	
+	/*women*/
+	/*1.housemates*/
+	_pctile temp if female==1 & haspart==0 & same_sex==0 & pointer_method==0 & hashousemate==1 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==1 & haspart==0 & same_sex==0 & pointer_method==0 & hashousemate==1;
+	
+	/*2.diff sex householder cohabiters*/
+	_pctile temp if female==1 & haspart==1 & same_sex==0 & pointer_method==0 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==1 & haspart==1 & same_sex==0 & pointer_method==0 & marr_cohab==2;
+
+	/*3.diff sex additional cohabiters*/
+	_pctile temp if female==1 & haspart==1 & same_sex==0 & pointer_method==1 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==1 & haspart==1 & same_sex==0 & pointer_method==1 & marr_cohab==2;
+
+	/*4.same sex householder cohabiters*/
+	_pctile temp if female==1 & haspart==1 & same_sex==1 & pointer_method==0 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==1 & haspart==1 & same_sex==1 & pointer_method==0 & marr_cohab==2;
+
+	/*5.same sex additional cohabiters*/
+	_pctile temp if female==1 & haspart==1 & same_sex==1 & pointer_method==1 & marr_cohab==2 [pw=wt06], p(25 50 75);
+	return list;
+	
+	count if female==1 & haspart==1 & same_sex==1 & pointer_method==1 & marr_cohab==2;
+	
+	
+	};
+log close;

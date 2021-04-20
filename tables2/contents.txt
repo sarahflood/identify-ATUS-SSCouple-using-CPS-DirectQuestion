@@ -1,0 +1,1 @@
+This folder is where regression output generated from the do files in this repository are stored.

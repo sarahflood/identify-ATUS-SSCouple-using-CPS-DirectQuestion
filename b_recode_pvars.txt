@@ -1,0 +1,246 @@
+#delimit;
+clear;
+clear matrix;
+set more off;
+
+
+log using logs/b_recode_pvars.log, t replace;
+
+use data/extract_hhcomp.dta;
+
+
+/*Start with all ATUS respondents and household members. The goal here is
+to identify couples either via direct observation in ATUS (as spouse or
+cohabiting partner) or for those who do NOT have a spouse or cohabiting
+partner reported in the household at the time of the ATUS, we will look
+back to the CPS to see if they reported a partner being in the household
+using CPS pointers (PECOHAB).
+
+Note that this approach requires using the CPS person line number because
+person line numbers could change between ATUS and CPS. PECOHAB is based on
+the CPS person line number.*/
+
+
+/*1. First identify ATUS respondents who do not report a spouse or partner in
+the household so we can look for a partner identified via CPS method. Put
+that information on all household members.*/
+
+gen _iselig_cpspointer=1 if spousepres==3 & lineno==1 & pecohab!=. & pecohab!=0 & pecohab!=99;
+egen iselig_cpspointer=max(_iselig_cpspointer),by(caseid);
+
+
+/*2. Get CPS line numbers for ATUS respondents and partners. Put this info
+on all household members.*/
+/*atus respondent's cps line number*/
+gen _resp_line_cps8=lineno_cps8 if lineno==1;
+egen resp_line_cps8=max(_resp_line_cps8),by(caseid);
+
+/*partner's cps line number*/
+gen _part_line_cps8=lineno_cps8 if pecohab==resp_line_cps8 & ((relate>=28 & relate<=30) | relate==996 | relate==997);
+egen part_line_cps8=max(_part_line_cps8),by(caseid);
+
+
+/*3. Once we've identified partners, we will put their relationship codes
+from both ATUS and CPS on all records*/
+/*partner's relate codes from atus and cps*/
+gen _part_cps_relate=relate_cps8 if part_line_cps8==lineno_cps8;
+egen part_cps_relate=max(_part_cps_relate),by(caseid);
+	label values part_cps_relate relate_cps8_lbl;
+gen _part_atus_relate=relate if part_line_cps8==lineno_cps8;
+egen part_atus_relate=max(_part_atus_relate),by(caseid);
+	label values part_atus_relate relate_lbl;
+
+
+
+/*visual check on things*/
+list caseid lineno relate lineno_cps8 pecohab _resp_line_cps8 resp_line_cps8 _part_line_cps8 part_line_cps8 _part_atus_relate part_atus_relate if caseid==20070504071826;
+
+
+/*copy spousepres from ATUS respondent's record to all records in household*/
+gen _spousepres_on_all=spousepres if spousepres!=99;
+egen spousepres_on_all=max(_spousepres_on_all),by(caseid);
+
+
+
+/*4. Assign a flag to each couple so that we know how they were identified
+and what kind of information we have from each.
+
+Note the following:
+	*couple_type=0: partner race, education, employment missing
+	*couple_tpye=1: all partner info available
+	*couple_type=2: all partner info available but needs to be created
+*/
+
+gen _couple_type=.;
+	replace _couple_type=0 if (spousepres_on_all==1 | spousepres_on_all==2) & lineno_cps8==999 & (relate==20 | relate==21);
+	replace _couple_type=1 if (spousepres_on_all==1 | spousepres_on_all==2) & lineno_cps8!=999 & (relate==20 | relate==21);
+	replace _couple_type=2 if spousepres==3 & part_line_cps8!=. & _couple_type==.;
+
+
+egen couple_type=max(_couple_type),by(caseid);
+	lab def ct_lb 0 "Partner moved in btw CPS/ATUS" 1 "Partner in both CPS/ATUS & ATUS" 2 "Partner via pointer method (in both CPS/ATUS)";
+	lab values couple_type ct_lb;
+
+gen _pointer_method=(couple_type==2);
+egen pointer_method=max(_pointer_method),by(caseid);
+
+
+/*5. look at DQ flags for SEX to make sure same sex couples aren't being
+overwhelmingly assigned based on allocated values; look at QSEX flags for
+both ATUS respondents and partners.*/
+
+gen alloc_sex_atus=(qsex>=11 & qsex<=13);
+gen alloc_sex_cps=((qsex_cps8>=10 & qsex_cps8<=13) | (qsex_cps8>=41 & qsex_cps8<=43));
+
+gen _spalloc_sex_atus=(alloc_sex_atus==1 & (relate==20 | relate==21));
+egen spalloc_sex_atus=max(_spalloc_sex_atus),by(caseid);
+
+gen _spalloc_sex_cps=(alloc_sex_cps==1 & part_line_cps8==lineno_cps8);
+egen spalloc_sex_cps=max(_spalloc_sex_cps),by(caseid);
+
+gen sp_has_sex_alloc=(spalloc_sex_atus==1 | spalloc_sex_cps==1);
+
+
+list lineno relate lineno_cps8 pecohab sex qsex sex_cps8 qsex_cps8 _spalloc_sex_atus _spalloc_sex_cps if sp_has_sex_alloc==1, sepby(caseid) nol;
+
+
+
+/*6. Create a married/unmarried flag and partner age/sex characteristics.
+Identify same-sex vs. different-sex couples.*/
+gen marr_cohab=spousepres if spousepres==1 | spousepres==2;
+	replace marr_cohab=2 if couple_type==2; //identify R as having a cohab parter if they're in couple_type=2 (assigned based on PECOHAB) and SPOUSEPRES=3 (not in partnership)
+
+	lab def marr_cohab_lb 1 "married" 2 "cohab";
+	lab values marr_cohab marr_cohab_lb;
+
+
+
+gen ispart=0;
+	replace ispart=1 if (relate==20 | relate==21);
+	replace ispart=1 if _part_line_cps8!=. & couple_type==2;
+
+egen haspart=max(ispart),by(caseid);
+
+foreach v in sex age sex_cps8 {;
+	gen _sp_`v'=`v' if ispart==1;
+	egen sp_`v'=max(_sp_`v'),by(caseid);
+	replace sp_`v'=. if lineno!=1;
+	};
+
+
+gen same_sex=(sex==sp_sex);
+gen same_sex_cps8=(sex_cps8==sp_sex_cps8 & sp_sex_cps8!=99);
+
+
+gen resp_sex_same=(sex==sex_cps8 & lineno==1);
+gen part_sex_same=(sp_sex==sp_sex_cps8 & sp_sex_cps8!=99 & lineno==1);
+gen both_sex_same=(resp_sex_same==1 & part_sex_same==1);
+
+/*if both resp and partner are in ATUS & CPS, sex must match for both. If partner is not in CPS, resp sex must match*/
+gen strictestkeep=0;
+	replace strictestkeep=1 if both_sex_same==1 & couple_type!=0;
+	replace strictestkeep=1 if resp_sex_same==1 & couple_type==0;
+
+tab same_sex strictestkeep;
+
+
+tab couple_type same_sex if sp_has_sex_alloc==1;
+
+
+gen income=9;
+	replace income=1 if famincome <= 7;
+	replace income=2 if famincome >=8 & famincome<=11;
+	replace income=3 if famincome >=12 & famincome<=13;
+	replace income=4 if famincome >=14 & famincome <=15;
+	replace income=5 if famincome==16;
+
+	lab def inc_lb 1 "Less than 25" 2 "25-49999" 3 "50-74999" 4 "75-149999" 5 "150 and over" 9 "missing";
+	lab values income inc_lb;
+
+	tab income, gen(dincome);
+
+gen race_red=3 if race!=9999;
+	replace race_red=1 if race==100;
+	replace race_red=2 if race==110;
+
+	lab def race_lb 1 "white" 2 "black" 3 "other";
+	lab values race_red race_lb;
+
+	tab race_red, gen(drace_red);
+
+gen educ_red=3 if educ!=999;
+	replace educ_red=1 if educ<20;
+	replace educ_red=2 if educ>=20 & educ<40;
+
+	lab def edu_lb 1 "less hs" 2 "hs & some coll" 3 "degree +";
+	lab values educ_red edu_lb;
+
+	tab educ_red, gen(deduc_red);
+
+gen employed=0 if empstat!=99;
+	replace employed=1 if empstat<=2;
+
+
+gen age2=0;
+	replace age2=1 if age<30;
+	replace age2=2 if age>=30 & age<40;
+	replace age2=3 if age>=40 & age<50;
+	replace age2=4 if age>=50 & age<60;
+	replace age2=5 if age>=60;
+
+	label define age_lb 1 "Less 30" 2 "30-39" 3 "40-49" 4 "50-59" 5 "60 and over";
+	label values age2 age_lb;
+
+	tab age2, gen(dage);
+
+gen female=(sex==2);
+
+
+/*flag for presence of children in CPS*/
+gen _haschildren_cps=0;
+	replace _haschildren_cps=1 if (pelnmom==resp_line_cps8 | pelnmom==part_line_cps8) & pelnmom!=. & lineno!=999;
+	replace _haschildren_cps=1 if (pelndad==resp_line_cps8 | pelnmom==part_line_cps8) & pelndad!=. & lineno!=999;
+
+egen haschildren_cps=max(_haschildren_cps),by(caseid); //respondent or partner has children at time of cps who are still in HH at time of ATUS
+
+
+/*flag for presence of children in ATUS*/
+gen _haschildren_atus=0;
+	replace _haschildren_atus=1 if inlist(relate,22,27); //own children or foster children identified at the time of ATUS. exclude non-hh children.
+
+egen haschildren_atus=max(_haschildren_atus),by(caseid);
+
+
+/*flag for presence of children in CPS OR ATUS*/
+gen haschildren=(haschildren_cps==1 | haschildren_atus==1);
+	replace haschildren=. if pelnmom==.; //only identify starting in 2006. Too much ambiguity otherwise.
+
+
+/*flag for presence of parent in ATUS*/
+gen _hasparent=0;
+	replace _hasparent=1 if relate==24;
+egen hasparent=max(_hasparent),by(caseid);
+
+
+/*flag for presence of another adult in ATUS*/
+gen _hasotherad=0;
+	replace _hasotherad=1 if age>=18 & inlist(relate,24,25,26,28,29,30) & ispart==0;
+egen hasotherad=max(_hasotherad),by(caseid);
+
+
+/*flag for presence of housemate in ATUS*/
+gen _hashousemate=0;
+	replace _hashousemate=1 if inlist(relate,28) & ispart==0;
+egen hashousemate=max(_hashousemate),by(caseid);
+
+
+/*identify housemates who have not previously been identified as a partner*/
+gen ishousemate=(inlist(relate,28) & ispart==0);
+
+save data/recode_person_pre_drop, replace;
+
+keep if lineno==1;
+save data/recode_person_pre_drop_resp_only, replace;
+
+
+log close;

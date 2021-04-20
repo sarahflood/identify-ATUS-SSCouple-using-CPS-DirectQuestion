@@ -1,0 +1,85 @@
+#delimit;
+clear;
+clear matrix;
+set more off;
+
+
+
+log using logs/a_run_ipums_extract.log, t replace;
+
+/*****1. Read in IPUMS ATUS hierarchical data*****/
+local extract_num 00665;
+
+cap confirm file atusx_extracts/atus_`extract_num'.dat;
+if _rc {;
+	disp "!!!!!STOP and unizp the IPUMS ATUS extract";
+	log close;
+	exit;
+	};
+
+cd atusx_extracts;
+qui do atus_`extract_num'.do;
+cd ..;
+
+save data/extract_hier.dta, replace;
+
+
+/*****2. Split the hierarchical file into pieces*****/
+keep if rectype==1;
+
+qui foreach v of var * {;
+	count if missing(`v');
+	if r(N) == _N drop `v';
+	};
+
+sort caseid;
+save data/extract_h, replace;
+
+
+clear;
+use data/extract_hier.dta;
+keep if rectype==2;
+
+qui foreach v of var * {;
+	count if missing(`v');
+	if r(N) == _N drop `v';
+	};
+
+sort caseid lineno pernum;
+save data/extract_p, replace;
+
+
+/*****Put household characteristics on household member records*****/
+merge m:1 caseid using data/extract_h;
+keep if _merge==3;
+drop _merge;
+count;
+
+save data/extract_hhcomp.dta, replace;
+
+
+clear;
+use data/extract_hier.dta;
+keep if rectype==3;
+
+qui foreach v of var * {;
+	count if missing(`v');
+	if r(N) == _N drop `v';
+	};
+
+save data/extract_a, replace;
+
+
+clear;
+use data/extract_hier.dta;
+keep if rectype==4;
+
+qui foreach v of var * {;
+	count if missing(`v');
+	if r(N) == _N drop `v';
+	};
+
+save data/extract_w, replace;
+	
+
+log close;
